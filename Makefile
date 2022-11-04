@@ -160,6 +160,16 @@ shell: $(BUILD_DIRS)
 	    $(BUILD_IMAGE)                                          \
 	    /bin/sh $(CMD)
 
+vendor:
+	go mod tidy
+	go mod vendor
+
+gen:
+	protoc -I=. \
+		--go_out=. --go_opt=module=github.com/masudur-rahman/repo-management-svc \
+		--go-grpc_out=. --go-grpc_opt=module=github.com/masudur-rahman/repo-management-svc \
+		internal/proto-files/*/*.proto
+
 CONTAINER_DOTFILES = $(foreach bin,$(BINS),.container-$(subst /,_,$(REGISTRY)/$(bin))-$(TAG))
 
 container containers: # @HELP builds containers for one platform ($OS/$ARCH)
@@ -167,13 +177,6 @@ container containers: $(CONTAINER_DOTFILES)
 	@for bin in $(BINS); do              \
 	    echo "container: $(REGISTRY)/$$bin:$(TAG)"; \
 	done
-
-
-gen:
-	protoc -I=. \
-		--go_out=. --go_opt=module=github.com/masudur-rahman/repo-management-svc \
-    	--go-grpc_out=. --go-grpc_opt=module=github.com/masudur-rahman/repo-management-svc \
-    	internal/proto-files/*/*.proto
 
 # Each container-dotfile target can reference a $(BIN) variable.
 # This is done in 2 steps to enable target-specific variables.
