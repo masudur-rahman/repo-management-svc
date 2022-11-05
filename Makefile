@@ -160,6 +160,12 @@ shell: $(BUILD_DIRS)
 	    $(BUILD_IMAGE)                                          \
 	    /bin/sh $(CMD)
 
+start-server:
+	go run ./cmd/grpc/server/main.go
+
+start-client:
+	go run ./cmd/grpc/client/main.go
+
 vendor:
 	go mod tidy
 	go mod vendor
