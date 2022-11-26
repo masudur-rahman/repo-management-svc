@@ -28,7 +28,7 @@ VERSION ?= $(shell git describe --tags --always --dirty)
 ### These variables should not need tweaking.
 ###
 
-SRC_DIRS := cmd pkg # directories which hold app source (not vendored)
+SRC_DIRS := cmd internal/gRPC # directories which hold app source (not vendored)
 
 ALL_PLATFORMS := darwin/arm64 linux/amd64 linux/arm linux/arm64 linux/ppc64le linux/s390x windows/amd64
 
@@ -40,7 +40,8 @@ BASEIMAGE ?= gcr.io/distroless/static
 
 TAG := $(VERSION)__$(OS)_$(ARCH)
 
-BUILD_IMAGE ?= golang:1.19-alpine
+GO_VERSION       ?= 1.19
+BUILD_IMAGE      ?= ghcr.io/masudur-rahman/golang:$(GO_VERSION)-alpine
 
 BIN_EXTENSION :=
 ifeq ($(OS), windows)
@@ -120,9 +121,30 @@ $(STAMPS): go-build
 	fi
 
 # This runs the actual `go build` which updates all binaries.
-go-build: $(BUILD_DIRS)
-	@echo
-	@echo "building for $(OS)/$(ARCH)"
+go-build: | $(BUILD_DIRS)
+	echo "# building for $(OS)/$(ARCH)"
+	docker run                                                  \
+	    -i                                                      \
+	    --rm                                                    \
+	    -u $$(id -u):$$(id -g)                                  \
+	    -v $$(pwd):/src                                         \
+	    -w /src                                                 \
+	    -v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin                \
+	    -v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin/$(OS)_$(ARCH)  \
+	    -v $$(pwd)/.go/cache:/.cache                            \
+	    -v $$(pwd)/.go/pkg:/go/pkg                              \
+	    --env ARCH="$(ARCH)"                                    \
+	    --env OS="$(OS)"                                        \
+	    --env VERSION="$(VERSION)"                              \
+	    --env DEBUG="$(DBG)"                                    \
+	    --env GOFLAGS="$(GOFLAGS)"                              \
+	    --env HTTP_PROXY="$(HTTP_PROXY)"                        \
+	    --env HTTPS_PROXY="$(HTTPS_PROXY)"                      \
+	    $(BUILD_IMAGE)                                          \
+	    ./hack/build.sh ./...
+
+fmt: # @HELP Formats project source codes
+fmt: $(BUILD_DIRS)
 	@docker run                                                 \
 	    -i                                                      \
 	    --rm                                                    \
@@ -132,15 +154,12 @@ go-build: $(BUILD_DIRS)
 	    -v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin                \
 	    -v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin/$(OS)_$(ARCH)  \
 	    -v $$(pwd)/.go/cache:/.cache                            \
+	    -v $$(pwd)/.go/pkg:/go/pkg                              \
 	    --env HTTP_PROXY=$(HTTP_PROXY)                          \
 	    --env HTTPS_PROXY=$(HTTPS_PROXY)                        \
 	    $(BUILD_IMAGE)                                          \
-	    /bin/sh -c "                                            \
-	        ARCH=$(ARCH)                                        \
-	        OS=$(OS)                                            \
-	        VERSION=$(VERSION)                                  \
-	        ./hack/build.sh                                    \
-	    "
+	    ./hack/fmt.sh $(SRC_DIRS)
+
 
 # Example: make shell CMD="-c 'date > datefile'"
 shell: # @HELP launches a shell in the containerized build environment
@@ -166,9 +185,31 @@ start-server:
 start-client:
 	go run ./cmd/grpc/client/main.go
 
-vendor:
-	go mod tidy
-	go mod vendor
+modules: # @HELP Update module dependencies
+modules: $(BUILD_DIRS)
+	@echo "updating go dependencies"
+	@docker run                                                 \
+		-i                                                      \
+		--rm                                                    \
+		-u $$(id -u):$$(id -g)                                  \
+		-v $$(pwd):/src                                         \
+		-w /src                                                 \
+		-v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin                \
+		-v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin/$(OS)_$(ARCH)  \
+		-v $$(pwd)/.go/cache:/.cache                            \
+		-v $$(pwd)/.go/pkg:/go/pkg                              \
+		--env HTTP_PROXY=$(HTTP_PROXY)                          \
+		--env HTTPS_PROXY=$(HTTPS_PROXY)                        \
+		$(BUILD_IMAGE)                                          \
+		/bin/bash -c "											\
+			go mod tidy && go mod vendor						\
+		"
+
+GIT_DIFF := "if !(git diff --exit-code HEAD); then echo \"go module files are out of date\"; exit 1; fi"
+verify-modules: modules
+	@if !(git diff --exit-code HEAD); then 						\
+		echo "go module files are out of date";	exit 1; 		\
+	fi
 
 gen:
 	protoc -I=. \
