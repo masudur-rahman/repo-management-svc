@@ -123,7 +123,7 @@ $(STAMPS): go-build
 # This runs the actual `go build` which updates all binaries.
 go-build: | $(BUILD_DIRS)
 	echo "# building for $(OS)/$(ARCH)"
-	docker run                                                  \
+	@docker run                                                  \
 	    -i                                                      \
 	    --rm                                                    \
 	    -u $$(id -u):$$(id -g)                                  \
@@ -212,10 +212,25 @@ verify-modules: modules
 	fi
 
 gen:
-	protoc -I=. \
-		--go_out=. --go_opt=module=github.com/masudur-rahman/repo-management-svc \
-		--go-grpc_out=. --go-grpc_opt=module=github.com/masudur-rahman/repo-management-svc \
-		internal/proto-files/*/*.proto
+	@docker run                                                 \
+		-i                                                      \
+		--rm                                                    \
+		-u $$(id -u):$$(id -g)                                  \
+		-v $$(pwd):/src                                         \
+		-w /src                                                 \
+		-v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin                \
+		-v $$(pwd)/.go/bin/$(OS)_$(ARCH):/go/bin/$(OS)_$(ARCH)  \
+		-v $$(pwd)/.go/cache:/.cache                            \
+		-v $$(pwd)/.go/pkg:/go/pkg                              \
+		--env HTTP_PROXY=$(HTTP_PROXY)                          \
+		--env HTTPS_PROXY=$(HTTPS_PROXY)                        \
+		$(BUILD_IMAGE)                                          \
+		/bin/bash -c "	\
+			protoc -I=. \
+			--go_out=. --go_opt=module=github.com/masudur-rahman/repo-management-svc \
+				--go-grpc_out=. --go-grpc_opt=module=github.com/masudur-rahman/repo-management-svc \
+				internal/proto-files/*/*.proto \
+		"
 
 CONTAINER_DOTFILES = $(foreach bin,$(BINS),.container-$(subst /,_,$(REGISTRY)/$(bin))-$(TAG))
 
